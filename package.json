@@ -1,0 +1,33 @@
+{
+  "name": "omnichannel-headless-service",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Headless Omnichannel Chat SDK service using Puppeteer",
+  "scripts": {
+    "build:sdk": "node src/backend/esbuild.config.cjs",
+    "server": "node src/backend/server.js",
+    "server:dev": "node --watch src/backend/server.js",
+    "start": "npm run build:sdk && npm run server",
+    "docker:build": "docker build -t omnichannel-headless .",
+    "docker:run": "docker run -d -p 3001:3001 --env-file .env --shm-size=512mb --name omnichannel-headless omnichannel-headless",
+    "docker:stop": "docker stop omnichannel-headless && docker rm omnichannel-headless",
+    "docker:logs": "docker logs -f omnichannel-headless",
+    "docker:restart": "npm run docker:stop && npm run docker:run"
+  },
+  "dependencies": {
+    "@microsoft/omnichannel-chat-sdk": "^1.11.7-main.80a4f46",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "puppeteer": "^23.11.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.1",
+    "esbuild-plugin-polyfill-node": "^0.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

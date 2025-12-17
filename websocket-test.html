@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Omnichannel WebSocket Test Client</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #1a1a2e; color: #eee; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { color: #0078d4; }
+        .panel { background: #16213e; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        label { display: block; margin-bottom: 5px; color: #aaa; }
+        input, button { padding: 10px 15px; border: none; border-radius: 4px; font-size: 14px; }
+        input { background: #0f3460; color: #fff; width: 100%; margin-bottom: 10px; }
+        button { background: #0078d4; color: white; cursor: pointer; margin-right: 10px; }
+        button:hover { background: #106ebe; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        button.danger { background: #d13438; }
+        button.danger:hover { background: #a4262c; }
+        button.success { background: #107c10; }
+        #status { padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+        .connected { background: #107c10; }
+        .disconnected { background: #d13438; }
+        .connecting { background: #ff8c00; }
+        #events { background: #0f3460; border-radius: 4px; padding: 15px; height: 400px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 13px; }
+        .event { padding: 8px; margin-bottom: 5px; border-radius: 4px; border-left: 4px solid; }
+        .event.message { background: #1e3a5f; border-color: #0078d4; }
+        .event.agentJoined { background: #1a3d1a; border-color: #107c10; }
+        .event.agentLeft { background: #3d1a1a; border-color: #d13438; }
+        .event.typing { background: #3d3d1a; border-color: #ff8c00; }
+        .event.error { background: #3d1a1a; border-color: #d13438; }
+        .event.system { background: #2a2a3e; border-color: #666; }
+        .event-time { color: #888; font-size: 11px; }
+        .event-type { font-weight: bold; text-transform: uppercase; font-size: 11px; }
+        .event-content { margin-top: 5px; }
+        .flex { display: flex; gap: 10px; }
+        .flex input { flex: 1; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Omnichannel WebSocket Client</h1>
+        
+        <div class="panel">
+            <h3>1. Create Session</h3>
+            <div class="flex">
+                <input type="text" id="apiUrl" value="http://localhost:3001" placeholder="API URL">
+                <button onclick="createSession()">Create Session</button>
+            </div>
+            <label style="margin-top:10px">Session ID:</label>
+            <input type="text" id="sessionId" placeholder="Session ID will appear here...">
+        </div>
+
+        <div class="panel">
+            <h3>2. Connect WebSocket</h3>
+            <div id="status" class="disconnected">Disconnected</div>
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled class="danger">Disconnect</button>
+            <button onclick="startChat()" class="success">Start Chat</button>
+        </div>
+
+        <div class="panel">
+            <h3>3. Send Message</h3>
+            <div class="flex">
+                <input type="text" id="messageInput" placeholder="Type a message..." onkeypress="if(event.key==='Enter')sendMessage()">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3>📨 Events</h3>
+            <button onclick="clearEvents()" style="margin-bottom:10px; background:#555">Clear</button>
+            <div id="events"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let sessionId = null;
+
+        function getApiUrl() {
+            return document.getElementById('apiUrl').value;
+        }
+
+        async function createSession() {
+            try {
+                logEvent('system', 'Creating session...');
+                const response = await fetch(`${getApiUrl()}/api/chat/session`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (data.success) {
+                    sessionId = data.sessionId;
+                    document.getElementById('sessionId').value = sessionId;
+                    logEvent('system', `Session created: ${sessionId}`);
+                } else {
+                    logEvent('error', `Failed: ${data.error}`);
+                }
+            } catch (err) {
+                logEvent('error', `Error: ${err.message}`);
+            }
+        }
+
+        async function startChat() {
+            const sid = document.getElementById('sessionId').value;
+            if (!sid) {
+                logEvent('error', 'No session ID');
+                return;
+            }
+            try {
+                logEvent('system', 'Starting chat...');
+                const response = await fetch(`${getApiUrl()}/api/chat/${sid}/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (data.success) {
+                    logEvent('system', 'Chat started!');
+                } else {
+                    logEvent('error', `Failed: ${data.error}`);
+                }
+            } catch (err) {
+                logEvent('error', `Error: ${err.message}`);
+            }
+        }
+
+        function connect() {
+            const sid = document.getElementById('sessionId').value;
+            if (!sid) {
+                logEvent('error', 'Please create or enter a session ID first');
+                return;
+            }
+
+            const wsUrl = getApiUrl().replace('http', 'ws') + `/ws?sessionId=${sid}`;
+            logEvent('system', `Connecting to ${wsUrl}...`);
+            updateStatus('connecting', 'Connecting...');
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                updateStatus('connected', 'Connected');
+                logEvent('system', 'WebSocket connected!');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    logEvent(data.type, data.data ? JSON.stringify(data.data, null, 2) : '');
+                } catch {
+                    logEvent('system', event.data);
+                }
+            };
+
+            ws.onclose = () => {
+                updateStatus('disconnected', 'Disconnected');
+                logEvent('system', 'WebSocket disconnected');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                ws = null;
+            };
+
+            ws.onerror = (error) => {
+                logEvent('error', 'WebSocket error');
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        async function sendMessage() {
+            const sid = document.getElementById('sessionId').value;
+            const content = document.getElementById('messageInput').value;
+            if (!sid || !content) return;
+
+            try {
+                const response = await fetch(`${getApiUrl()}/api/chat/${sid}/message`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    logEvent('system', `Message sent: "${content}"`);
+                    document.getElementById('messageInput').value = '';
+                } else {
+                    logEvent('error', `Failed: ${data.error}`);
+                }
+            } catch (err) {
+                logEvent('error', `Error: ${err.message}`);
+            }
+        }
+
+        function updateStatus(state, text) {
+            const el = document.getElementById('status');
+            el.className = state;
+            el.textContent = text;
+        }
+
+        function logEvent(type, content) {
+            const events = document.getElementById('events');
+            const time = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.className = `event ${type}`;
+            div.innerHTML = `
+                <span class="event-time">${time}</span>
+                <span class="event-type">${type}</span>
+                <div class="event-content">${content || ''}</div>
+            `;
+            events.insertBefore(div, events.firstChild);
+        }
+
+        function clearEvents() {
+            document.getElementById('events').innerHTML = '';
+        }
+
+        // Initialize
+        logEvent('system', 'Ready. Create a session to begin.');
+    </script>
+</body>
+</html>
